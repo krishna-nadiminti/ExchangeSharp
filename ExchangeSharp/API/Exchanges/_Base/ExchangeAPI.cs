@@ -874,6 +874,16 @@ namespace ExchangeSharp
             return OnGetCompletedOrderDetailsWebSocket(callback);
         }
 
+        /// <summary>
+        /// Get the updates of all user trades via web socket
+        /// </summary>
+        /// <param name="callback">Callback</param>
+        /// <returns>Web socket, call Dispose to close</returns>
+        public virtual IWebSocket GetUserTradesWebSocket(Action<UserTradeResult> callback)
+        {
+            callback.ThrowIfNull(nameof(callback), "Callback must not be null");
+            return OnGetUserTradesWebSocket(callback);
+        }
         #endregion Web Socket API
     }
 }

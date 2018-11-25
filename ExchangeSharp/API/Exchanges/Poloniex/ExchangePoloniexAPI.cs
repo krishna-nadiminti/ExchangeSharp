@@ -853,20 +853,79 @@ namespace ExchangeSharp
             return orders;
         }
 
+        private static string GetErrorResponseOrThrow(APIException ax)
+        {
+            var errorResponse = JsonConvert.DeserializeObject<JToken>(ax.Message);
+            if (errorResponse is JObject && errorResponse["error"] is JValue errMsg)
+            {
+                return errMsg.ConvertInvariant<string>();
+            }
+            else
+            {
+                throw ax;
+            }
+        }
+
         protected override async Task<ExchangeOrderResult> OnGetOrderDetailsAsync(string orderId, string marketSymbol = null)
         {
-            JToken resultArray = await MakePrivateAPIRequestAsync("returnOrderTrades", new object[] { "orderNumber", orderId });
-            string tickerSymbol = resultArray[0]["currencyPair"].ToStringInvariant();
-            List<ExchangeOrderResult> orders = new List<ExchangeOrderResult>();
-            ParseCompletedOrderDetails(orders, resultArray, tickerSymbol);
-            if (orders.Count != 1)
-            {
-                throw new APIException($"ReturnOrderTrades for a single orderNumber returned {orders.Count} orders. Expected 1.");
-            }
+            // ugly Poloniex API see:
+            // https://poloniex.com/support/api/#rest_trading_returnOrderStatus
 
-            orders[0].OrderId = orderId;
-            orders[0].Price = orders[0].AveragePrice;
-            return orders[0];
+            try
+            {
+                var errMsg = default(string);
+                var isPartiallyFilled = false;
+                try
+                {
+                    var statusResult = await MakePrivateAPIRequestAsync("returnOrderStatus", new object[] { "orderNumber", orderId });
+                    if (statusResult is JObject)
+                    {
+                        var status = statusResult["result"][orderId]["status"];
+                        isPartiallyFilled = status.ConvertInvariant<string>() == "Partially filled"; // the ugliest API ever
+                    }
+                }
+                catch (APIException ax1)
+                {
+                    errMsg = GetErrorResponseOrThrow(ax1); // if we get a error string, this could be a filled OR a cancelled order : it is no longer open
+                }
+
+                var resultArray = await MakePrivateAPIRequestAsync("returnOrderTrades", new object[] { "orderNumber", orderId });
+                var tickerSymbol = resultArray[0]["currencyPair"].ToStringInvariant();
+
+                var orders = new List<ExchangeOrderResult>();
+                ParseCompletedOrderDetails(orders, resultArray, tickerSymbol);
+                if (orders.Count != 1)
+                {
+                    throw new APIException($"ReturnOrderTrades for a single orderNumber returned {orders.Count} orders. Expected 1.");
+                }
+
+                orders[0].OrderId = orderId;
+                orders[0].Price = orders[0].AveragePrice;
+
+                // ugly: if we had a error message with returnOrderStatus, it means the current status is 'canceled'.
+                if (!string.IsNullOrWhiteSpace(errMsg))
+                {
+                    orders[0].Result = ExchangeAPIOrderResult.Canceled;
+                    orders[0].Message = errMsg; // from the returnOrderStatus for informational purposes
+                }
+                else if (isPartiallyFilled)
+                {
+                    orders[0].Result = ExchangeAPIOrderResult.FilledPartially;
+                }
+                // else we've already set the status to Filled.
+
+                return orders[0];
+            }
+            catch (APIException ax)
+            {
+                var errMsg = GetErrorResponseOrThrow(ax);
+
+                return new ExchangeOrderResult {
+                    OrderId = orderId,
+                    Result = ExchangeAPIOrderResult.Canceled,
+                    Message = errMsg
+                };
+            }
         }
 
         protected override async Task<IEnumerable<ExchangeOrderResult>> OnGetCompletedOrderDetailsAsync(string marketSymbol = null, DateTime? afterDate = null)
