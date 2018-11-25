@@ -550,6 +550,78 @@ namespace ExchangeSharp
             });
         }
 
+        protected override IWebSocket OnGetUserTradesWebSocket(Action<UserTradeResult> callback)
+        {
+            var messageIdToSymbol = new Dictionary<int, Tuple<string, long>>();
+            return ConnectWebSocket(string.Empty, async (_socket, msg) =>
+            {
+                var token = JToken.Parse(msg.ToStringFromUTF8());
+                var msgId = token[0].ConvertInvariant<int>();
+
+                // this is a subscription acknowledgement message
+                if (msgId == 1010 || token.Count() == 2) // "[1000, 1]"
+                {
+                    return;
+                }
+
+                /*
+                 *
+                 [
+                    1000,
+                    null,
+                    [
+                    ["b", DATA_1, DATA_2, DATA_3],
+                    ["n", DATA_1, DATA_2, DATA_3, DATA_4, DATA_5, DATA_6]
+                    ]
+                 ]
+
+                 */
+                var dataArray = token[2];
+                // "o" updates gives us very little info, so ignoring. "n" is for a new order, so ignoring.
+                foreach (var data in dataArray)
+                {
+                    var updateType = data[0].ConvertInvariant<string>();
+                    if (updateType == "t")
+                    {
+                        // ["t", <trade ID>, "<rate>", "<amount>", "<fee multiplier>", <funding type>, <order number>]
+                        // ["t", 12345, "0.03000000", "0.50000000", '0.00250000', 0, 6083059]
+                        var tradeId     = data[1].ConvertInvariant<string>();
+                        var rate        = decimal.Parse(data[2].ConvertInvariant<string>());
+                        var amount      = decimal.Parse(data[3].ConvertInvariant<string>());
+                        var fees        = decimal.Parse(data[4].ConvertInvariant<string>()) * amount;
+                        var fundingType = data[5].ConvertInvariant<string>();
+                        var orderId     = data[6].ConvertInvariant<string>();
+
+                        var result = new UserTradeResult(
+                            new KeyValuePair<string, object> ("FundingType", fundingType))
+                        {
+                            TradeId = tradeId,
+                            OrderId = orderId,
+                            Amount = amount,
+                            Price = rate,
+                            Fees = fees
+                        };
+
+                        callback?.Invoke(result);
+                    }
+                }
+            }, async (_socket) =>
+            {
+                // subscribe to account updates channel
+                // with auth info
+                var nonce = await GenerateNonceAsync();
+                var noncePayload = $"nonce={nonce}";
+
+                await _socket.SendMessageAsync(new {
+                    command = "subscribe",
+                    channel = 1000,
+                    key = PublicApiKey.ToUnsecureString(),
+                    payload = noncePayload,
+                    sign = CryptoUtility.SHA512Sign(noncePayload, PrivateApiKey.ToUnsecureString())
+                });
+            });
+        }
+
         protected override async Task<ExchangeOrderBook> OnGetOrderBookAsync(string marketSymbol, int maxCount = 100)
         {
             // {"asks":[["0.01021997",22.83117932],["0.01022000",82.3204],["0.01022480",140],["0.01023054",241.06436945],["0.01023057",140]],"bids":[["0.01020233",164.195],["0.01020232",66.22565096],["0.01020200",5],["0.01020010",66.79296968],["0.01020000",490.19563761]],"isFrozen":"0","seq":147171861}

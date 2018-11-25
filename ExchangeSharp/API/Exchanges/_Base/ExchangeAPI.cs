@@ -108,6 +108,7 @@ namespace ExchangeSharp
         protected virtual IWebSocket OnGetOrderBookWebSocket(Action<ExchangeOrderBook> callback, int maxCount = 20, params string[] marketSymbols) => throw new NotImplementedException();
         protected virtual IWebSocket OnGetOrderDetailsWebSocket(Action<ExchangeOrderResult> callback) => throw new NotImplementedException();
         protected virtual IWebSocket OnGetCompletedOrderDetailsWebSocket(Action<ExchangeOrderResult> callback) => throw new NotImplementedException();
+        protected virtual IWebSocket OnGetUserTradesWebSocket(Action<UserTradeResult> callback) => throw new NotImplementedException();
 
         #endregion API implementation
 
