@@ -1,4 +1,4 @@
-﻿/*
+/*
 MIT LICENSE
 
 Copyright 2017 Digital Ruby, LLC - http://www.digitalruby.com
@@ -489,8 +489,12 @@ namespace ExchangeSharp
                 decimal mod = value % stepSize.Value;
                 value -= mod;
             }
-
-            value = Math.Min(maxValue, value);
+           
+            if (maxValue > 0)
+            {
+                value = Math.Min(maxValue, value);
+            }
+                
             value = Math.Max(minValue, value);
 
             return value.Normalize();
@@ -656,7 +660,7 @@ namespace ExchangeSharp
             {
                 request.AddHeader("content-length", "0");
             }
-            else
+            else if (!string.IsNullOrEmpty(form))
             {
                 byte[] bytes = form.ToBytesUTF8();
                 request.AddHeader("content-length", bytes.Length.ToStringInvariant());
