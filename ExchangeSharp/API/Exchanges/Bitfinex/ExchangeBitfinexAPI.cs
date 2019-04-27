@@ -63,6 +63,7 @@ namespace ExchangeSharp
             };
 
             MarketSymbolSeparator = string.Empty;
+            MarketSymbolIsUppercase = false;
         }
 
         public string NormalizeMarketSymbolV1(string marketSymbol)
@@ -284,9 +285,28 @@ namespace ExchangeSharp
                     }
                     else
                     {
-                        //parse snapshot here if needed
-                    }
-                }
+						//parse snapshot here if needed
+						if (channelIdToSymbol.TryGetValue(array[0].ConvertInvariant<int>(), out string symbol))
+						{
+							if (array[1] is JArray subarray)
+							{
+								for (int i = 0; i < subarray.Count - 1; i++)
+								{
+									ExchangeTrade trade = ParseTradeWebSocket(subarray[i]);
+									if (trade != null)
+									{
+										trade.Flags |= ExchangeTradeFlags.IsFromSnapshot;
+										if (i == subarray.Count - 1)
+										{
+											trade.Flags |= ExchangeTradeFlags.IsLastFromSnapshot;
+										}
+										callback(new KeyValuePair<string, ExchangeTrade>(symbol, trade));
+									}
+								}
+							}
+						}
+					}
+				}
                 else if (token["event"].ToStringInvariant() == "subscribed" && token["channel"].ToStringInvariant() == "trades")
                 {
                     //{"event": "subscribed","channel": "trades","chanId": 29654,"symbol": "tBTCUSD","pair": "BTCUSD"}
