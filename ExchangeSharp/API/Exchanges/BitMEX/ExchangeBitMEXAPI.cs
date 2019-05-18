@@ -558,11 +558,11 @@ response:
             string url = $"/trade/bucketed?binSize={periodString}&partial=false&symbol={marketSymbol}&reverse=true" + marketSymbol;
             if (startDate != null)
             {
-                url += "&startTime=" + startDate.Value.ToString("yyyy-MM-dd");
+                url += "&startTime=" + startDate.Value.ToString("yyyy-MM-ddTHH:mm:ss");
             }
             if (endDate != null)
             {
-                url += "&endTime=" + endDate.Value.ToString("yyyy-MM-dd");
+                url += "&endTime=" + endDate.Value.ToString("yyyy-MM-ddTHH:mm:ss");
             }
             if (limit != null)
             {
