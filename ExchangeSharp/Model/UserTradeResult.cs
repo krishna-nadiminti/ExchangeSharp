@@ -28,16 +28,21 @@ namespace ExchangeSharp
         /// <summary>Order id</summary>
         public string OrderId { get; set; }
 
-        /// <summary>Trade amount in the market currency.
-        /// E.g. ADA/BTC would be ADA</summary>
+        /// <summary>
+        /// Trade amount in the market currency.
+        /// </summary>
         public decimal Amount { get; set; }
 
-        /// <summary>The price of the trade in the ratio of base/market currency.
-        /// E.g. 0.000342 ADA/ETH</summary>
+        /// <summary>
+        /// The price of the trade in the ratio of base/market currency.
+        /// E.g. 0.000342 ADA/ETH
+        /// </summary>
         public decimal Price { get; set; }
 
-        /// <summary>The fees on the trade (not a percent).
-        /// E.g. 0.0025 ETH</summary>
+        /// <summary>
+        /// The fees on the trade (not a percent).
+        /// E.g. 0.0025 ETH
+        /// </summary>
         public decimal Fees { get; set; }
 
         /// <summary>The id of the trade</summary>

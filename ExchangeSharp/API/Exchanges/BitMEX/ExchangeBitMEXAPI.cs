@@ -20,6 +20,7 @@ using System.Web;
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using ExchangeSharp.BitMEX;
 
 namespace ExchangeSharp
 {
@@ -83,7 +84,6 @@ namespace ExchangeSharp
             var m = await GetMarketSymbolsMetadataAsync();
             return m.Select(x => x.MarketSymbol);
         }
-
 
         protected override async Task<IEnumerable<ExchangeMarket>> OnGetMarketSymbolsMetadataAsync()
         {
@@ -271,6 +271,122 @@ namespace ExchangeSharp
             });
         }
 
+        protected override IWebSocket OnGetUserTradesWebSocket(Action<UserTradeResult> callback)
+        {
+            return ConnectWebSocket(string.Empty,
+                (_, msg) =>
+                {
+                    var str = msg.ToStringFromUTF8();
+                    JToken token = JToken.Parse(str);
+
+                    if (token["error"] != null)
+                    {
+                        Logger.Info(token["error"].ToStringInvariant());
+                        return Task.CompletedTask;
+                    }
+                    else if (token["table"] == null)
+                    {
+                        return Task.CompletedTask;
+                    }
+
+                    var execution = JsonConvert.DeserializeObject<WSMessage<ExecutionRecord>>(str);
+                    foreach (var item in execution.Data)
+                    {
+                        /*
+                         * See:
+                         * https://www.bitmex.com/app/wsAPI#Subscriptions,
+                         * https://www.bitmex.com/api/explorer/#!/Execution/Execution_get,
+                         * and
+                         * http://www.onixs.biz/fix-dictionary/5.0.SP2/msgType_8_8.html
+                           
+                           Each execution element looks like the `ExecutionRecord` instance
+                         */
+                        var result = new UserTradeResult (BuildExecutionProps(item))
+                        {
+                            OrderId = item.OrderId,
+                            TradeId = item.ExecId,
+                            Price = item.Price,
+                            Amount = item.LastQty,
+                            Fees = item.Commission
+                        };
+                        callback(result);
+                    }
+                    return Task.CompletedTask;
+                },
+                async _socket =>
+                {
+                    await AuthenticateWS(_socket);
+                    await _socket.SendMessageAsync(new { op = "subscribe", args = "execution" });
+                });
+        }
+
+        private async Task AuthenticateWS(IWebSocket socket)
+        {
+            // signature is hex(HMAC_SHA256(secret, 'GET/realtime' + expires))
+            // expires must be a number, not a string.
+            var apiKey = PublicApiKey.ToUnsecureString();
+            var expires = (long) await GenerateNonceAsync();
+            var signature = CryptoUtility.SHA256Sign($"GET/realtime{expires}", PrivateApiKey.ToUnsecureString().ToBytesUTF8());
+
+            await socket.SendMessageAsync(new
+            {
+                op = "authKeyExpires",
+                args = new object[] { apiKey, expires, signature }
+            });
+        }
+
+        private static KeyValuePair<string, object>[] BuildExecutionProps(ExecutionRecord item) =>
+            new Dictionary<string, object>
+            {
+                { "execID"               , item.ExecId },
+                { "orderID"              , item.OrderId },
+                { "clOrdID"              , item.ClOrdId },
+                { "clOrdLinkID"          , item.ClOrdLinkId },
+                { "account"              , item.Account },
+                { "symbol"               , item.Symbol },
+                { "side"                 , item.Side },
+                { "lastQty"              , item.LastQty },
+                { "lastPx"               , item.LastPx },
+                { "underlyingLastPx"     , item.UnderlyingLastPx },
+                { "lastMkt"              , item.LastMkt },
+                { "lastLiquidityInd"     , item.LastLiquidityInd },
+                { "simpleOrderQty"       , item.SimpleOrderQty },
+                { "orderQty"             , item.OrderQty },
+                { "price"                , item.Price },
+                { "displayQty"           , item.DisplayQty },
+                { "stopPx"               , item.StopPx },
+                { "pegOffsetValue"       , item.PegOffsetValue },
+                { "pegPriceType"         , item.PegPriceType },
+                { "currency"             , item.Currency },
+                { "settlCurrency"        , item.SettlCurrency },
+                { "execType"             , item.ExecType },
+                { "ordType"              , item.OrdType },
+                { "timeInForce"          , item.TimeInForce },
+                { "execInst"             , item.ExecInst },
+                { "contingencyType"      , item.ContingencyType },
+                { "exDestination"        , item.ExDestination },
+                { "ordStatus"            , item.OrdStatus },
+                { "triggered"            , item.Triggered },
+                { "workingIndicator"     , item.WorkingIndicator },
+                { "ordRejReason"         , item.OrdRejReason },
+                { "simpleLeavesQty"      , item.SimpleLeavesQty },
+                { "leavesQty"            , item.LeavesQty },
+                { "simpleCumQty"         , item.SimpleCumQty },
+                { "cumQty"               , item.CumQty },
+                { "avgPx"                , item.AvgPx },
+                { "commission"           , item.Commission },
+                { "tradePublishIndicator", item.TradePublishIndicator },
+                { "multiLegReportingType", item.MultiLegReportingType },
+                { "text"                 , item.Text },
+                { "trdMatchID"           , item.TrdMatchId },
+                { "execCost"             , item.ExecCost },
+                { "execComm"             , item.ExecComm },
+                { "homeNotional"         , item.HomeNotional },
+                { "foreignNotional"      , item.ForeignNotional },
+                { "transactTime"         , item.TransactTime },
+                { "timestamp"            , item.Timestamp }
+            }.ToArray();
+
         protected override IWebSocket OnGetOrderBookWebSocket(Action<ExchangeOrderBook> callback, int maxCount = 20, params string[] marketSymbols)
         {
             /*
@@ -354,6 +470,79 @@ namespace ExchangeSharp
                 }
                 await _socket.SendMessageAsync(new { op = "subscribe", args = marketSymbols.Select(s => "orderBookL2:" + this.NormalizeMarketSymbol(s)).ToArray() });
             });
+        }
+
+        protected override async Task<ExchangeOrderBook> OnGetOrderBookAsync(string marketSymbol, int maxCount = 100)
+        {
+            /*
+example:
+https://www.bitmex.com/api/v1/orderBook/L2?symbol=XBTUSD&depth=2
+
+response: 
+[
+  {
+    "symbol": "XBTUSD",
+    "id": 8799483450,
+    "side": "Sell",
+    "size": 548128,
+    "price": 5165.5
+  },
+  {
+    "symbol": "XBTUSD",
+    "id": 8799483500,
+    "side": "Sell",
+    "size": 1635621,
+    "price": 5165
+  },
+  {
+    "symbol": "XBTUSD",
+    "id": 8799483550,
+    "side": "Buy",
+    "size": 273296,
+    "price": 5164.5
+  },
+  {
+    "symbol": "XBTUSD",
+    "id": 8799483600,
+    "side": "Buy",
+    "size": 773305,
+    "price": 5164
+  }
+]
+             */
+
+            Dictionary<string, object> payload = await GetNoncePayloadAsync();
+            string query = $"/orderBook/L2?symbol={marketSymbol}&depth={maxCount}";
+            var orderBookItems = await MakeJsonRequestAsync<OrderBookItem[]>(query, BaseUrl, payload, "GET");
+
+            var asks = orderBookItems.Where(item => item.IsAsk);
+            var bids = orderBookItems.Where(item => !item.IsAsk);
+
+            var exchangeOrderBook = new ExchangeOrderBook
+            {
+                LastUpdatedUtc = DateTime.UtcNow,
+                MarketSymbol = marketSymbol,
+                SequenceId = orderBookItems.Max(item => item.Id)
+            };
+
+            foreach (var ask in asks)
+            {
+                exchangeOrderBook.Asks.Add(ask.Price, new ExchangeOrderPrice {
+                    Price = ask.Price,
+                    Amount = ask.Size
+                });
+            }
+
+            foreach (var bid in bids)
+            {
+                exchangeOrderBook.Bids.Add(bid.Price, new ExchangeOrderPrice
+                {
+                    Price = bid.Price,
+                    Amount = bid.Size
+                });
+            }
+
+            return exchangeOrderBook;
         }
 
         protected override async Task<IEnumerable<MarketCandle>> OnGetCandlesAsync(string marketSymbol, int periodSeconds, DateTime? startDate = null, DateTime? endDate = null, int? limit = null)
