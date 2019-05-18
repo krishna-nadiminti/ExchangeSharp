@@ -228,6 +228,8 @@ namespace ExchangeSharp
 
         private ExchangeTicker ParseTickerWebSocket(string symbol, JToken token)
         {
+            // According to the Poloniex docs, the below is correct
+            // But it seems like the actual data returned swaps 5 and 6.
             /*
             last: args[1],
             lowestAsk: args[2],
@@ -239,7 +241,8 @@ namespace ExchangeSharp
             high24hr: args[8],
             low24hr: args[9]
             */
-            return this.ParseTicker(token, symbol, 2, 3, 1, 5, 6);
+            // original: return this.ParseTicker(token, symbol, 2, 3, 1, 5, 6);
+            return this.ParseTicker(token, symbol, 2, 3, 1, 6, 5);
         }
 
         protected override async Task ProcessRequestAsync(IHttpWebRequest request, Dictionary<string, object> payload)
