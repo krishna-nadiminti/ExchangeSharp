@@ -25,6 +25,7 @@ namespace ExchangeSharp
     public sealed partial class ExchangeGeminiAPI : ExchangeAPI
     {
         public override string BaseUrl { get; set; } = "https://api.gemini.com/v1";
+        public override string BaseUrlWebSocket { get; set; } = "wss://api.gemini.com/v1";
 
         public ExchangeGeminiAPI()
         {
@@ -216,6 +217,34 @@ namespace ExchangeSharp
 
             return orders;
         }
+
+        protected override IWebSocket OnGetTickersWebSocket(Action<IReadOnlyCollection<KeyValuePair<string, ExchangeTicker>>> callback, params string[] symbols)
+        {
+            return ConnectWebSocket("/marketdata/btcusd?top_of_book=true&bids=true&offers=true&trades=true&auctions=true", (_socket, msg) =>
+            {
+                JToken token = JToken.Parse(msg.ToStringFromUTF8());
+                List<KeyValuePair<string, ExchangeTicker>> tickerList = new List<KeyValuePair<string, ExchangeTicker>>();
+                ExchangeTicker ticker;
+                JToken childToken = token["events"];
+
+               
+                return Task.CompletedTask;
+            });
+        }
+
+        //Need to change it based on the Gemini Signature
+        private ExchangeTicker ParseTicker(string symbol, JToken token)
+        {
+            // {"priceChange":"-0.00192300","priceChangePercent":"-4.735","weightedAvgPrice":"0.03980955","prevClosePrice":"0.04056700","lastPrice":"0.03869000","lastQty":"0.69300000","bidPrice":"0.03858500","bidQty":"38.35000000","askPrice":"0.03869000","askQty":"31.90700000","openPrice":"0.04061300","highPrice":"0.04081900","lowPrice":"0.03842000","volume":"128015.84300000","quoteVolume":"5096.25362239","openTime":1512403353766,"closeTime":1512489753766,"firstId":4793094,"lastId":4921546,"count":128453}
+            return this.ParseTicker(token, symbol, "askPrice", "bidPrice", "lastPrice", "volume", "quoteVolume", "closeTime", TimestampType.UnixMilliseconds);
+        }
+        //Need to change it based on the Gemini Signature
+        private ExchangeTicker ParseTickerWebSocket(JToken token)
+        {
+            string marketSymbol = token["s"].ToStringInvariant();
+            return this.ParseTicker(token, marketSymbol, "a", "b", "c", "v", "q", "E", TimestampType.UnixMilliseconds);
+        }
+
 
         protected override async Task OnCancelOrderAsync(string orderId, string marketSymbol = null)
         {
